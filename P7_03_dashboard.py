@@ -8,7 +8,7 @@ import urllib
 from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import make_pipeline
 from lime.lime_tabular import LimeTabularExplainer
-#import shap
+import shap
 
 # warning on pyplot
 st.set_option('deprecation.showPyplotGlobalUse', False)
@@ -17,22 +17,21 @@ st.set_option('deprecation.showPyplotGlobalUse', False)
 MODEL_FILE = 'model_file.sav'
 FINAL_FILE = 'complete.pkl'
 DESC_FILE = 'descriptions.pkl'
-SHAP_EXP = ''
-SHAP_VAL = ''
-GITHUB_ROOT = ('https://raw.githubusercontent.com/USER/REPO/main/')
+SHAP_EXP = 'shap_exp.sav'
+SHAP_VAL = 'shap_val.pkl'
+GITHUB_ROOT = ('https://raw.githubusercontent.com/pipohipo/p7_dashboard/main/')
 
 h_line = '''
 ---
 '''
 
-# cache main fuction at start, use pickle to load objects
-# def load_obj(file: str):
-#     github_url = GITHUB_ROOT + file
-#     with urllib.request.urlopen(github_url) as open_file:
-#         return pickle.load(open_file)
-
 def load_obj(file: str):
-    return pickle.load(open(file, 'rb'))
+    github_url = GITHUB_ROOT + file
+    with urllib.request.urlopen(github_url) as open_file:
+        return pickle.load(open_file)
+
+# def load_obj(file: str):
+#     return pickle.load(open(file, 'rb'))
 
 @st.cache(suppress_st_warning=True)
 def bulk_init():
@@ -57,16 +56,16 @@ def bulk_init():
 
     pipe = initialize_model()
 
-    # def initialize_shap():
-    #     shap_exp = load_obj(SHAP_EXP)
-    #     shap_val = load_obj(SHAP_VAL)
-    #     return shap_exp, shap_val
+    def initialize_shap():
+        shap_exp = load_obj(SHAP_EXP)
+        shap_val = load_obj(SHAP_VAL)
+        return shap_exp, shap_val
 
-    # shap_explainer, shap_values = initialize_shap()
+    shap_explainer, shap_values = initialize_shap()
 
-    return desc, field_list, final, inputs, sk_id_list, pipe
+    return desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values
 
-desc, field_list, final, inputs, sk_id_list, pipe = bulk_init()
+desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values = bulk_init()
 
 # Apply threshold to positive probatilities
 @st.cache
@@ -210,7 +209,7 @@ def lime_explaination(inputs, results, selected_sk_id):
             exp_list= exp.as_list()
             vals = [x[1] for x in exp_list]
             names = [x[0] for x in exp_list]
-            axisgb_colors = ['#fee0d2' if x > 0 else '#c7e9c0' for x in vals]
+            axisgb_colors = ['#FABEC0' if x > 0 else '#B4F8C8' for x in vals]
             vals.reverse()
             names.reverse()
             colors = ['red' if x > 0 else 'green' for x in vals]
@@ -252,30 +251,30 @@ lime_explaination(inputs, results, selected_sk_id)
 # SHAP
 st.subheader('SHAP explainer')
 
-# def shap_explaination(sk_id_select):
-#     if st.button('Generate SHAP'):
-#         with st.spinner('Calculating...'):
-#             st.write('__SH__apley __A__dditive ex__P__lanations: how the most important features impact on class prediction')
-#             st.write('Green Feature: Decreases the Risk of Default')
-#             st.write('Green Feature: Increases the Risk of Default')
-#             idx = inputs.index.get_loc(sk_id_curr)
-#             ind_fig = shap.force_plot(
-#                 shap_explainer.expected_value[1],
-#                 shap_values[1][idx],
-#                 inputs.iloc[[idx]], plot_cmap="PkYg")
-#             ind_fig_html = f"<head>{shap.getjs()}</head><body>{ind_fig.html()}</body>"
-#             # create collective fig
-#             col_fig = shap.force_plot(
-#                 shap_explainer.expected_value[1],
-#                 shap_values[1][0,:],
-#                 inputs.iloc[0,:], plot_cmap="PkYg")
-#             col_fig_html = f"<head>{shap.getjs()}</head><body>{col_fig.html()}</body>"
-#             # create 
-#             feat_fig = shap.force_plot(
-#                 shap_explainer.expected_value[1],
-#                 shap_values[1][:500,:],
-#                 inputs.iloc[:500,:], plot_cmap="PkYg")
-#             feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
-#             components.html(feat_fig_html, height=350)
+def shap_explaination(selected_sk_id):
+    if st.button('Generate SHAP'):
+        with st.spinner('Calculating...'):
+            st.write('__SH__apley __A__dditive ex__P__lanations: how the most important features impact on class prediction')
+            st.write('Green Feature: Decreases the Risk of Default')
+            st.write('Green Feature: Increases the Risk of Default')
+            idx = inputs.index.get_loc(selected_sk_id)
+            ind_fig = shap.force_plot(
+                shap_explainer.expected_value[1],
+                shap_values[1][idx],
+                inputs.iloc[[idx]], plot_cmap="PkYg")
+            ind_fig_html = f"<head>{shap.getjs()}</head><body>{ind_fig.html()}</body>"
+            # create collective fig
+            col_fig = shap.force_plot(
+                shap_explainer.expected_value[1],
+                shap_values[1][0,:],
+                inputs.iloc[0,:], plot_cmap="PkYg")
+            col_fig_html = f"<head>{shap.getjs()}</head><body>{col_fig.html()}</body>"
+            # create 
+            feat_fig = shap.force_plot(
+                shap_explainer.expected_value[1],
+                shap_values[1][:500,:],
+                inputs.iloc[:500,:], plot_cmap="PkYg")
+            feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
+            components.html(feat_fig_html, height=350)
 
-# shap_explaination(selected_sk_id)
+shap_explaination(selected_sk_id)
