@@ -8,6 +8,7 @@ import urllib
 from sklearn.neighbors import NearestNeighbors
 from sklearn.pipeline import make_pipeline
 from lime.lime_tabular import LimeTabularExplainer
+from PIL import Image
 import shap
 
 # warning on pyplot
@@ -19,6 +20,7 @@ FINAL_FILE = 'complete.pkl'
 DESC_FILE = 'descriptions.pkl'
 SHAP_EXP = 'shap_exp.sav'
 SHAP_VAL = 'shap_val.pkl'
+SUMMARY_SHAP = 'summary_shap.png'
 GITHUB_ROOT = ('https://raw.githubusercontent.com/pipohipo/p7_dashboard/main/')
 
 h_line = '''
@@ -34,7 +36,7 @@ def load_obj(file: str):
 #     return pickle.load(open(file, 'rb'))
 
 @st.cache(suppress_st_warning=True)
-def bulk_init():
+def full_init():
     def initilize_desc():
         # list of features from descripton file
         df = load_obj(DESC_FILE)
@@ -65,7 +67,7 @@ def bulk_init():
 
     return desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values
 
-desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values = bulk_init()
+desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values = full_init()
 
 # Apply threshold to positive probatilities
 @st.cache
@@ -187,63 +189,100 @@ st.subheader('LIME explainer')
 
 def lime_explaination(inputs, results, selected_sk_id):
     # Write slider settings
-    st.write('Set the number of *features* to analyse')
-    nb_features = st.slider(label='Number of Features to analyse', min_value=5, value=10, max_value=30)
-    st.write('Set the number of *similar applications* to compare with (based on feature importance)')
-    nb_neighbors = st.slider(label='Number of similar applications to consider', min_value=5, value=10, max_value=30)
+    st.write('Set the number of features to analyse')
+    nb_features = st.slider(label='Features', min_value=1, value=10, max_value=inputs.shape[1])
+    st.write('Set the number of similar clients to compare with (based on feature importance)')
+    nb_neighbors = st.slider(label='Similar clients', min_value=2, value=5, max_value=30)
 
     # If button is activated... then do the thingy
     if st.button('Generate LIME'):
         with st.spinner('Calculating...'): # doing the thingy...
-            lime_explainer = LimeTabularExplainer(training_data=inputs.values, mode='classification', training_labels=results[['TARGET']], feature_names=inputs.columns)
-            exp = lime_explainer.explain_instance(inputs.loc[selected_sk_id].values, pipe.predict_proba, num_features=nb_features)
-            # introduce next step
-            st.write('LIME for the selected Client:')
-            st.write('Positive value __Red__ means __Support__ the Class 1: Failure Risk')
-            st.write('Negative value __Green__ means __Contradict__ the Class 1: Failure Risk')
-            # Get features_to_show list
+            # create explainer
+            lime_explainer = LimeTabularExplainer(
+                training_data=inputs.values, 
+                mode='classification', 
+                training_labels=results['TARGET'], 
+                feature_names=inputs.columns)
+            # lime explanation for a given SK_ID_CURR value (application/client)
+            exp = lime_explainer.explain_instance(
+                inputs.loc[selected_sk_id].values, 
+                pipe.predict_proba, 
+                num_features=nb_features)
+            
+            # blahblah details
+            st.write('LIME for the selected client:')
+            st.write('Positive values in __Red__ means __Support__ the Class 1: Failure Risk')
+            st.write('Negative values in __Green__ means __Contradict__ the Class 1: Failure Risk')
+            
+            # get features_to_show list
             id_cols = [item[0] for item in exp.as_map()[1]]
-            # Create inputs restricted to the features_to_show
+            # inputs restricted to the features_to_show
             df_lime = inputs.filter(inputs.columns[id_cols].tolist())
+            
             # compute inputs for plots
-            exp_list= exp.as_list()
+            exp_list = exp.as_list()
             vals = [x[1] for x in exp_list]
             names = [x[0] for x in exp_list]
+            
             axisgb_colors = ['#FABEC0' if x > 0 else '#B4F8C8' for x in vals]
+            
             vals.reverse()
             names.reverse()
+            
             colors = ['red' if x > 0 else 'green' for x in vals]
-            pos = np.arange(len(exp_list)) + .5
-            # create tab plot
-            tab = plt.figure()
+            
+            pos = np.arange(len(exp_list))
+            
+            # create plot
+            plt_tab = plt.figure()
             plt.barh(pos, vals, align='center', color=colors)
             plt.yticks(pos, names)
             plt.title('Local explanation for Class 1: Failure Risk')
-            st.pyplot(tab)
-            # find nb_neighbors nearest neighbors to catch anomaly
-            nearest_neighbors = NearestNeighbors(n_neighbors=nb_neighbors, radius=0.4)
+            st.pyplot(plt_tab)
+            
+            # find nb_neighbors nearest neighbors
+            nearest_neighbors = NearestNeighbors(n_neighbors=nb_neighbors, radius=0.3)
             nearest_neighbors.fit(df_lime)
-            neighbors = nearest_neighbors.kneighbors(df_lime.loc[[selected_sk_id]], nb_neighbors + 1, return_distance=False)[0]
+            
+            neighbors = nearest_neighbors.kneighbors(
+                X=df_lime.loc[[selected_sk_id]], #current observation
+                n_neighbors=nb_neighbors+1, #it gives the X value in the 0 position so we need one more
+                return_distance=False)[0]
             neighbors = np.delete(neighbors, 0)
-            # compute values for neighbors, class0 and class1
+            
+            # compute values for neighbors
             df_lime['TARGET'] = results['TARGET']
-            neighbors_values = pd.DataFrame(df_lime.iloc[neighbors].mean(), index=df_lime.columns, columns=['Neighbors_Mean'])
-            st.write('__- Neighbors Risk Flag averaged__', neighbors_values.Neighbors_Mean.tail(1).values[0])
-            st.write('*Nb. Neighborood __do not__ take Risk prediction values into account*')
+            neighbors_values = pd.DataFrame(
+                df_lime.iloc[neighbors].median(), 
+                index=df_lime.columns, 
+                columns=['Neighbors_Median'])
+            
+            st.write('__- Neighbors Risk Flag averaged__', neighbors_values.Neighbors_Median.tail(1).values[0])
+
             client_values = df_lime.loc[[selected_sk_id]].T
-            client_values.columns = ['Client_Value']
-            class1_values = pd.DataFrame(df_lime[df_lime['TARGET'] == 1].mean(), index=df_lime.columns, columns=['Class_1_Mean'])
-            class0_values = pd.DataFrame(df_lime[df_lime['TARGET'] == 0].mean(), index=df_lime.columns, columns=['Class_0_Mean'])
-            any_values = pd.concat([class0_values.iloc[:-1], class1_values.iloc[:-1], neighbors_values.iloc[:-1], client_values], axis=1)
-            colorsList = ('tab:green', 'tab:red', 'tab:cyan', 'tab:blue')
-            fig, axs = plt.subplots(nb_features, sharey='row', figsize=(8, 4 * nb_features))
+            client_values.columns = ['Client']
+
+            class1_values = pd.DataFrame(
+                df_lime[df_lime['TARGET'] == 1].median(), 
+                index=df_lime.columns, 
+                columns=['Class_1_Median'])
+
+            class0_values = pd.DataFrame(
+                df_lime[df_lime['TARGET'] == 0].median(), 
+                index=df_lime.columns, 
+                columns=['Class_0_Median'])
+                
+            classes_values = pd.concat([class0_values, class1_values, neighbors_values, client_values], axis=1)
+
+            fig, axs = plt.subplots(nb_features, sharey='row', figsize=(10, 5*nb_features))
+            colorsList = ('#FB475E', '#019992', '#44EE77', '#FFB001')
+            
             for i in np.arange(0, nb_features):
-                axs[i].barh(any_values.T.index,any_values.T.iloc[:, i],color=colorsList)
-                axs[i].set_title(str(any_values.index[i]), fontweight="bold")
+                axs[i].barh(classes_values.T.index, classes_values.T.iloc[:, i], color=colorsList)
+                axs[i].set_title(str(classes_values.index[i]), fontweight="bold")
                 axs[i].patch.set_facecolor(axisgb_colors[i])
-            st.write('__ - Details of LIME explaination for each features: __')
-            st.write('*Nb. You may compare Client value with mean of its Neighbors, Class 1 & Class 0*')
-            st.write('*Colored lightred / lightgreen foreground is related to Class 1: Failure Risk Support / Contradict*')
+            st.write('Client comparison with its neighbors, Class 0 and Class 1 medians')
+            st.write('__Lightred__ (__Lightgreen__) background means __Support__ (__Contradict__) for the Class 1: Failure Risk')
             st.pyplot(fig)
 
 lime_explaination(inputs, results, selected_sk_id)
@@ -255,26 +294,27 @@ def shap_explaination(selected_sk_id):
     if st.button('Generate SHAP'):
         with st.spinner('Calculating...'):
             st.write('__SH__apley __A__dditive ex__P__lanations: how the most important features impact on class prediction')
-            st.write('Green Feature: Decreases the Risk of Default')
-            st.write('Green Feature: Increases the Risk of Default')
+
             idx = inputs.index.get_loc(selected_sk_id)
-            ind_fig = shap.force_plot(
-                shap_explainer.expected_value[1],
-                shap_values[1][idx],
-                inputs.iloc[[idx]], plot_cmap="PkYg")
-            ind_fig_html = f"<head>{shap.getjs()}</head><body>{ind_fig.html()}</body>"
-            # create collective fig
-            col_fig = shap.force_plot(
-                shap_explainer.expected_value[1],
-                shap_values[1][0,:],
-                inputs.iloc[0,:], plot_cmap="PkYg")
-            col_fig_html = f"<head>{shap.getjs()}</head><body>{col_fig.html()}</body>"
-            # create 
+
+            client_fig = shap.force_plot(
+                shap_explainer.expected_value,
+                shap_values[idx, :],
+                inputs.iloc[idx, :])
+            client_fig_html = f"<head>{shap.getjs()}</head><body>{client_fig.html()}</body>"
+            components.html(client_fig_html, height=150)
+
             feat_fig = shap.force_plot(
-                shap_explainer.expected_value[1],
-                shap_values[1][:500,:],
-                inputs.iloc[:500,:], plot_cmap="PkYg")
+                shap_explainer.expected_value,
+                shap_values[:50, :],
+                inputs.iloc[:50, :])
             feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
             components.html(feat_fig_html, height=350)
 
+            # summ_fig = shap.summary_plot(shap_values, inputs)
+            # summ_fig_html = f"<head>{shap.getjs()}</head><body>{summ_fig.html()}</body>"
+            # components.html(summ_fig_html, heigth=350)
+
 shap_explaination(selected_sk_id)
+
+st.image(Image.open(SUMMARY_SHAP, caption='Shap summary plot'))
