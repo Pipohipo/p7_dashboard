@@ -317,4 +317,4 @@ def shap_explaination(selected_sk_id):
 
 shap_explaination(selected_sk_id)
 
-st.image(Image.open(SUMMARY_SHAP, caption='Shap summary plot'))
+st.image(Image.open(SUMMARY_SHAP), caption='Shap summary plot')
