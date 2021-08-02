@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st #https://docs.streamlit.io/en/stable/api.html
 import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
@@ -166,19 +166,23 @@ st.sidebar.text(txt_feat_desc)
 # MAIN PAGE
 ###############################################################
 st.subheader('Selected Client')
-st.write()
-st.write(selected_sk_row)
+st.write('Default risk probability:', selected_sk_row['RISK_PROBA'].values)
+st.write('TARGET:', selected_sk_row['TARGET'].values)
 
 st.markdown(h_line)
 
-st.subheader('Applications sample demo')
+st.subheader('Random applications sample')
 
 def application_samples_component():
+    st.write('Sample size:')
+    # nb_clients_sample = st.slider(label='Clients', min_value=1, value=3, max_value=results.shape[0])
+    nb_clients_sample = st.number_input(
+        label='Number of clients', 
+        min_value=1,
+        max_value=results.shape[0],
+        format='%i')
     if st.button('Generate sample'):
-        st.markdown('predicted __without__ difficulty to repay - sample')
-        st.write(results[results['TARGET'] == 0].sample(3))
-        st.markdown('predicted __with__ difficulty to repay - sample')
-        st.write(results[results['TARGET'] == 1].sample(3))
+        st.write(results.sample(nb_clients_sample))
 
 application_samples_component()
 
@@ -252,27 +256,40 @@ def lime_explaination(inputs, results, selected_sk_id):
             
             # compute values for neighbors
             df_lime['TARGET'] = results['TARGET']
-            neighbors_values = pd.DataFrame(
-                df_lime.iloc[neighbors].median(), 
-                index=df_lime.columns, 
-                columns=['Neighbors_Median'])
             
-            st.write('__- Neighbors Risk Flag averaged__', neighbors_values.Neighbors_Median.tail(1).values[0])
+            neighbors_values_int = df_lime.iloc[neighbors].select_dtypes(include=['int8']).mean().round(0)
+            neighbors_values_float = df_lime.iloc[neighbors].select_dtypes(include=['float16', 'float32']).mean()
+            neighbors_values = pd.concat([neighbors_values_int, neighbors_values_float]).reindex(df_lime.columns.tolist())
+
+            neighbors_values = pd.DataFrame(
+                neighbors_values,
+                index=df_lime.columns, 
+                columns=['neighbors_mean'])
+
+            st.write('__- Neighbors risk average__', neighbors_values.neighbors_mean.tail(1).values[0])
 
             client_values = df_lime.loc[[selected_sk_id]].T
-            client_values.columns = ['Client']
+            client_values.columns = ['client']
 
-            class1_values = pd.DataFrame(
-                df_lime[df_lime['TARGET'] == 1].median(), 
-                index=df_lime.columns, 
-                columns=['Class_1_Median'])
+            class_1_values_int = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['int8']).mean().round(0)
+            class_1_values_float = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['float16', 'float32']).mean()
+            class_1_values = pd.concat([class_1_values_int, class_1_values_float]).reindex(df_lime.columns.tolist())
+            class_1_values = pd.DataFrame(
+                class_1_values, 
+                index=df_lime.columns,
+                columns=['class_1_mean'])
 
-            class0_values = pd.DataFrame(
-                df_lime[df_lime['TARGET'] == 0].median(), 
-                index=df_lime.columns, 
-                columns=['Class_0_Median'])
-                
-            classes_values = pd.concat([class0_values, class1_values, neighbors_values, client_values], axis=1)
+            class_0_values_int = df_lime[df_lime['TARGET'] == 0].select_dtypes(include=['int8']).mean().round(0)
+            class_0_values_float = df_lime[df_lime['TARGET'] == 0].select_dtypes(include=['float16', 'float32']).mean()
+            class_0_values = pd.concat([class_0_values_int, class_0_values_float]).reindex(df_lime.columns.tolist())
+            class_0_values = pd.DataFrame(
+                class_0_values, 
+                index=df_lime.columns,
+                columns=['class_0_mean'])
+
+            classes_values = pd.concat([client_values, neighbors_values, class_0_values, class_1_values], axis=1)
+            classes_values.replace([-np.inf, np.inf], 1, inplace=True)
+            classes_values.fillna(0, inplace=True)
 
             fig, axs = plt.subplots(nb_features, sharey='row', figsize=(10, 5*nb_features))
             colorsList = ('#FB475E', '#019992', '#44EE77', '#FFB001')
@@ -281,7 +298,7 @@ def lime_explaination(inputs, results, selected_sk_id):
                 axs[i].barh(classes_values.T.index, classes_values.T.iloc[:, i], color=colorsList)
                 axs[i].set_title(str(classes_values.index[i]), fontweight="bold")
                 axs[i].patch.set_facecolor(axisgb_colors[i])
-            st.write('Client comparison with its neighbors, Class 0 and Class 1 medians')
+            st.write('Client comparison with its neighbors, Class 0 and Class 1 means')
             st.write('__Lightred__ (__Lightgreen__) background means __Support__ (__Contradict__) for the Class 1: Failure Risk')
             st.pyplot(fig)
 
