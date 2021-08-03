@@ -41,7 +41,7 @@ def full_init():
     def initilize_desc():
         # list of features from descripton file
         df = load_obj(DESC_FILE)
-        dflist = df['Feature'].tolist()
+        dflist = df['features'].tolist()
         return df, dflist
 
     desc, field_list = initilize_desc()
@@ -118,7 +118,7 @@ st.sidebar.markdown(h_line)
 st.sidebar.header('Feature description')
 def feat_description():
     select_feat = st.sidebar.selectbox('Select a feature', field_list, 0)
-    select_desc = desc[desc['Feature'] == select_feat]['Description']
+    select_desc = desc[desc['features'] == select_feat]['definitions']
     pd.options.display.max_colwidth = len(select_desc)
     return select_desc
 
