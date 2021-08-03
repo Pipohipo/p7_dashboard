@@ -27,13 +27,14 @@ h_line = '''
 ---
 '''
 
+###############################################################
+# PRELOAD
+###############################################################
+
 def load_obj(file: str):
     github_url = GITHUB_ROOT + file
     with urllib.request.urlopen(github_url) as open_file:
         return pickle.load(open_file)
-
-# def load_obj(file: str):
-#     return pickle.load(open(file, 'rb'))
 
 @st.cache(suppress_st_warning=True)
 def full_init():
@@ -69,11 +70,6 @@ def full_init():
 
 desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values = full_init()
 
-# Apply threshold to positive probatilities
-@st.cache
-def to_labels(pos_probs, threshold):
-    return (pos_probs >= threshold).astype('int')
-
 # Get predictions from FINAL and store the results
 @st.cache(allow_output_mutation=True)
 def get_og_predictions(final):
@@ -94,21 +90,6 @@ results, failure_ratio, risk_proba = get_og_predictions(final)
 # What it says...
 features_to_show = []
 
-# Update predictions
-@st.cache(allow_output_mutation=True)
-def update_prediction(final, threshold):
-    # og predictions
-    risk_proba = final['RISK_PROBA']
-    # new predictions
-    risk_flag = to_labels(risk_proba, threshold)
-    # return failure ratio
-    pred_good = (risk_flag == 0).sum()
-    pred_fail = (risk_flag == 1).sum()
-    failure_ratio = round(pred_fail / (pred_good + pred_fail), 2)
-    # update risk flags in results
-    results['TARGET'] = risk_flag
-    return results, failure_ratio
-
 st.write(
 """
 # Credit Scoring
@@ -118,31 +99,10 @@ st.write(
 ###############################################################
 # COOL SIDEBAR
 ###############################################################
-st.sidebar.header('Inputs')
-st.sidebar.markdown(h_line)
-st.markdown(h_line)
-# Failure ratio controler
-st.sidebar.subheader('Failure Ratio Control')
-st.sidebar.write('Failure Ratio', failure_ratio)
-
-def threshold_prediction():
-    # Threshold slider
-    new_threshold = st.sidebar.slider(label='Threshold:', min_value=0., value=0.5, max_value=1.)
-    # Update results
-    new_failure_ratio = failure_ratio
-    results, new_failure_ratio = update_prediction(final, new_threshold)
-    # Write on sidebar
-    st.sidebar.write('Selected Failure Ratio', new_failure_ratio)
-    return new_threshold
-
-current_threshold = threshold_prediction()
-
-st.sidebar.markdown(h_line)
-
 # Client selection (sk_id)
-st.sidebar.subheader('Client Selection')
+st.sidebar.header('Client Selection')
 def select_client():
-    sk_id_select = st.sidebar.selectbox('Client ID', sk_id_list, 0)
+    sk_id_select = st.sidebar.selectbox('SK_ID_CURR', sk_id_list, 0) #117082 Class 1 client
     sk_row = results.loc[[sk_id_select]]
     return sk_row, sk_id_select
 
@@ -150,8 +110,12 @@ selected_sk_row, selected_sk_id = select_client()
 
 st.sidebar.markdown(h_line)
 
+st.sidebar.image(Image.open('pred_distrib.png'), caption='Target distribution')
+
+st.sidebar.markdown(h_line)
+
 # Features description
-st.sidebar.subheader('Feature description')
+st.sidebar.header('Feature description')
 def feat_description():
     select_feat = st.sidebar.selectbox('Select a feature', field_list, 0)
     select_desc = desc[desc['Feature'] == select_feat]['Description']
@@ -165,9 +129,9 @@ st.sidebar.text(txt_feat_desc)
 ###############################################################
 # MAIN PAGE
 ###############################################################
-st.subheader('Selected Client')
-st.write('Default risk probability:', selected_sk_row['RISK_PROBA'].values)
-st.write('TARGET:', selected_sk_row['TARGET'].values)
+st.write('Default risk probability:', selected_sk_row['RISK_PROBA'].values[0])
+st.write('Category:', selected_sk_row['TARGET'].values[0])
+st.write('Client info:', selected_sk_row.drop(columns=['RISK_PROBA', 'TARGET']))
 
 st.markdown(h_line)
 
@@ -175,7 +139,6 @@ st.subheader('Random applications sample')
 
 def application_samples_component():
     st.write('Sample size:')
-    # nb_clients_sample = st.slider(label='Clients', min_value=1, value=3, max_value=results.shape[0])
     nb_clients_sample = st.number_input(
         label='Number of clients', 
         min_value=1,
@@ -193,10 +156,17 @@ st.subheader('LIME explainer')
 
 def lime_explaination(inputs, results, selected_sk_id):
     # Write slider settings
-    st.write('Set the number of features to analyse')
-    nb_features = st.slider(label='Features', min_value=1, value=10, max_value=inputs.shape[1])
-    st.write('Set the number of similar clients to compare with (based on feature importance)')
-    nb_neighbors = st.slider(label='Similar clients', min_value=2, value=5, max_value=30)
+    st.write('Client vs similar profiles')
+    nb_features = st.slider(
+        label='Set the number of features to analyse', 
+        min_value=1, 
+        value=10, 
+        max_value=inputs.shape[1])
+    nb_neighbors = st.slider(
+        label='Set the number of similar profiles to compare with', 
+        min_value=0, 
+        value=4, 
+        max_value=10)
 
     # If button is activated... then do the thingy
     if st.button('Generate LIME'):
@@ -244,32 +214,42 @@ def lime_explaination(inputs, results, selected_sk_id):
             plt.title('Local explanation for Class 1: Failure Risk')
             st.pyplot(plt_tab)
             
-            # find nb_neighbors nearest neighbors
-            nearest_neighbors = NearestNeighbors(n_neighbors=nb_neighbors, radius=0.3)
-            nearest_neighbors.fit(df_lime)
+            if nb_neighbors > 0:
+                # find nb_neighbors nearest neighbors
+                nearest_neighbors = NearestNeighbors(n_neighbors=nb_neighbors, radius=0.3)
+                nearest_neighbors.fit(df_lime)
             
-            neighbors = nearest_neighbors.kneighbors(
-                X=df_lime.loc[[selected_sk_id]], #current observation
-                n_neighbors=nb_neighbors+1, #it gives the X value in the 0 position so we need one more
-                return_distance=False)[0]
-            neighbors = np.delete(neighbors, 0)
+                neighbors = nearest_neighbors.kneighbors(
+                    X=df_lime.loc[[selected_sk_id]], #current observation
+                    n_neighbors=nb_neighbors+1, #it gives the X value in the 0 position so we need one more
+                    return_distance=False)[0]
+                neighbors = np.delete(neighbors, 0)
             
-            # compute values for neighbors
-            df_lime['TARGET'] = results['TARGET']
-            
-            neighbors_values_int = df_lime.iloc[neighbors].select_dtypes(include=['int8']).mean().round(0)
-            neighbors_values_float = df_lime.iloc[neighbors].select_dtypes(include=['float16', 'float32']).mean()
-            neighbors_values = pd.concat([neighbors_values_int, neighbors_values_float]).reindex(df_lime.columns.tolist())
+                # compute values for neighbors
+                df_lime['TARGET'] = results['TARGET']
+                
+                neighbors_values_int = df_lime.iloc[neighbors].select_dtypes(include=['int8']).mean().round(0)
+                neighbors_values_float = df_lime.iloc[neighbors].select_dtypes(include=['float16', 'float32']).mean()
+                neighbors_values = pd.concat([neighbors_values_int, neighbors_values_float]).reindex(df_lime.columns.tolist())
 
-            neighbors_values = pd.DataFrame(
-                neighbors_values,
-                index=df_lime.columns, 
-                columns=['neighbors_mean'])
+                neighbors_values = pd.DataFrame(
+                    neighbors_values,
+                    index=df_lime.columns, 
+                    columns=['neighbors_mean'])
 
-            st.write('__- Neighbors risk average__', neighbors_values.neighbors_mean.tail(1).values[0])
+                st.write('__- Neighbors risk average__', neighbors_values.neighbors_mean.tail(1).values[0])
 
-            client_values = df_lime.loc[[selected_sk_id]].T
-            client_values.columns = ['client']
+                client_values = df_lime.loc[[selected_sk_id]].T
+                client_values.columns = ['client']
+
+            else:
+                # compute values for neighbors
+                df_lime['TARGET'] = results['TARGET']
+
+                neighbors_values = pd.DataFrame(
+                    0,
+                    index=df_lime.columns, 
+                    columns=['neighbors_mean'])
 
             class_1_values_int = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['int8']).mean().round(0)
             class_1_values_float = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['float16', 'float32']).mean()
@@ -327,10 +307,6 @@ def shap_explaination(selected_sk_id):
                 inputs.iloc[:50, :])
             feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
             components.html(feat_fig_html, height=350)
-
-            # summ_fig = shap.summary_plot(shap_values, inputs)
-            # summ_fig_html = f"<head>{shap.getjs()}</head><body>{summ_fig.html()}</body>"
-            # components.html(summ_fig_html, heigth=350)
 
 shap_explaination(selected_sk_id)
 
