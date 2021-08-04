@@ -17,9 +17,10 @@ st.set_option('deprecation.showPyplotGlobalUse', False)
 # paths and such
 MODEL_FILE = 'model_file.sav'
 FINAL_FILE = 'complete.pkl'
+FINAL_CATS_FILE = 'complete_cats.pkl'
 DESC_FILE = 'descriptions.pkl'
-SHAP_EXP = 'shap_exp.sav'
-SHAP_VAL = 'shap_val.pkl'
+# SHAP_EXP = 'shap_exp.sav'
+# SHAP_VAL = 'shap_val.pkl'
 SUMMARY_SHAP = 'summary_shap.png'
 GITHUB_ROOT = ('https://raw.githubusercontent.com/pipohipo/p7_dashboard/main/')
 
@@ -54,38 +55,26 @@ def full_init():
 
     final, inputs, sk_id_list = initialize_inputs()
 
+    def initialize_inputs_cats():
+        return load_obj(FINAL_CATS_FILE)
+
+    final_cats = initialize_inputs_cats()        
+
     def initialize_model():
         return make_pipeline(load_obj(MODEL_FILE)) #Load and create pipeline
 
     pipe = initialize_model()
 
-    def initialize_shap():
-        shap_exp = load_obj(SHAP_EXP)
-        shap_val = load_obj(SHAP_VAL)
-        return shap_exp, shap_val
+    # def initialize_shap():
+    #     shap_exp = load_obj(SHAP_EXP)
+    #     shap_val = load_obj(SHAP_VAL)
+    #     return shap_exp, shap_val
 
-    shap_explainer, shap_values = initialize_shap()
+    # shap_explainer, shap_values = initialize_shap()
 
-    return desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values
+    return desc, field_list, final, inputs, sk_id_list, final_cats, pipe
 
-desc, field_list, final, inputs, sk_id_list, pipe, shap_explainer, shap_values = full_init()
-
-# Get predictions from FINAL and store the results
-@st.cache(allow_output_mutation=True)
-def get_og_predictions(final):
-    # get labels and probabilities
-    risk_flag = final['TARGET']
-    risk_proba = final['RISK_PROBA']
-    # return failure ratios
-    pred_good = (risk_flag == 0).sum()
-    pred_fail = (risk_flag == 1).sum()
-    failure_ratio = round(pred_fail / (pred_good + pred_fail), 2)
-    # result df
-    results = final.copy()
-    return results, failure_ratio, risk_proba
-
-# Create original results
-results, failure_ratio, risk_proba = get_og_predictions(final)
+desc, field_list, final, inputs, sk_id_list, final_cats, pipe = full_init()
 
 # What it says...
 features_to_show = []
@@ -103,7 +92,7 @@ st.write(
 st.sidebar.header('Client Selection')
 def select_client():
     sk_id_select = st.sidebar.selectbox('SK_ID_CURR', sk_id_list, 0) #117082 Class 1 client
-    sk_row = results.loc[[sk_id_select]]
+    sk_row = final.loc[[sk_id_select]]
     return sk_row, sk_id_select
 
 selected_sk_row, selected_sk_id = select_client()
@@ -118,7 +107,7 @@ st.sidebar.markdown(h_line)
 st.sidebar.header('Feature description')
 def feat_description():
     select_feat = st.sidebar.selectbox('Select a feature', field_list, 0)
-    select_desc = desc[desc['features'] == select_feat]['definitions']
+    select_desc = desc[desc['features'] == select_feat]['definitions'].values[0]
     pd.options.display.max_colwidth = len(select_desc)
     return select_desc
 
@@ -142,10 +131,10 @@ def application_samples_component():
     nb_clients_sample = st.number_input(
         label='Number of clients', 
         min_value=1,
-        max_value=results.shape[0],
+        max_value=final.shape[0],
         format='%i')
     if st.button('Generate sample'):
-        st.write(results.sample(nb_clients_sample))
+        st.write(final.sample(nb_clients_sample))
 
 application_samples_component()
 
@@ -154,7 +143,7 @@ st.markdown(h_line)
 # LIME: Local Interpretable Model-agnostic Explanations
 st.subheader('LIME explainer')
 
-def lime_explaination(inputs, results, selected_sk_id):
+def lime_explaination(inputs, final, selected_sk_id):
     # Write slider settings
     st.write('Client vs similar profiles')
     nb_features = st.slider(
@@ -175,7 +164,7 @@ def lime_explaination(inputs, results, selected_sk_id):
             lime_explainer = LimeTabularExplainer(
                 training_data=inputs.values, 
                 mode='classification', 
-                training_labels=results['TARGET'], 
+                training_labels=final['TARGET'], 
                 feature_names=inputs.columns)
             # lime explanation for a given SK_ID_CURR value (application/client)
             exp = lime_explainer.explain_instance(
@@ -226,7 +215,7 @@ def lime_explaination(inputs, results, selected_sk_id):
                 neighbors = np.delete(neighbors, 0)
             
                 # compute values for neighbors
-                df_lime['TARGET'] = results['TARGET']
+                df_lime['TARGET'] = final['TARGET']
                 
                 neighbors_values_int = df_lime.iloc[neighbors].select_dtypes(include=['int8']).mean().round(0)
                 neighbors_values_float = df_lime.iloc[neighbors].select_dtypes(include=['float16', 'float32']).mean()
@@ -239,17 +228,17 @@ def lime_explaination(inputs, results, selected_sk_id):
 
                 st.write('__- Neighbors risk average__', neighbors_values.neighbors_mean.tail(1).values[0])
 
-                client_values = df_lime.loc[[selected_sk_id]].T
-                client_values.columns = ['client']
-
             else:
                 # compute values for neighbors
-                df_lime['TARGET'] = results['TARGET']
+                df_lime['TARGET'] = final['TARGET']
 
                 neighbors_values = pd.DataFrame(
                     0,
                     index=df_lime.columns, 
                     columns=['neighbors_mean'])
+
+            client_values = df_lime.loc[[selected_sk_id]].T
+            client_values.columns = ['client']
 
             class_1_values_int = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['int8']).mean().round(0)
             class_1_values_float = df_lime[df_lime['TARGET'] == 1].select_dtypes(include=['float16', 'float32']).mean()
@@ -282,32 +271,33 @@ def lime_explaination(inputs, results, selected_sk_id):
             st.write('__Lightred__ (__Lightgreen__) background means __Support__ (__Contradict__) for the Class 1: Failure Risk')
             st.pyplot(fig)
 
-lime_explaination(inputs, results, selected_sk_id)
+lime_explaination(inputs, final, selected_sk_id)
 
 # SHAP
-st.subheader('SHAP explainer')
+st.subheader('SHAP Summary plot')
 
-def shap_explaination(selected_sk_id):
-    if st.button('Generate SHAP'):
-        with st.spinner('Calculating...'):
-            st.write('__SH__apley __A__dditive ex__P__lanations: how the most important features impact on class prediction')
+# SHAP for each client is disable since it takes a lot of time to calculate and the SHAP model is over a 100MB
+# def shap_explaination(selected_sk_id):
+#     if st.button('Generate SHAP'):
+#         with st.spinner('Calculating...'):
+#             st.write('__SH__apley __A__dditive ex__P__lanations: how the most important features impact on class prediction')
 
-            idx = inputs.index.get_loc(selected_sk_id)
+#             idx = inputs.index.get_loc(selected_sk_id)
 
-            client_fig = shap.force_plot(
-                shap_explainer.expected_value,
-                shap_values[idx, :],
-                inputs.iloc[idx, :])
-            client_fig_html = f"<head>{shap.getjs()}</head><body>{client_fig.html()}</body>"
-            components.html(client_fig_html, height=150)
+#             client_fig = shap.force_plot(
+#                 shap_explainer.expected_value,
+#                 shap_values[idx, :],
+#                 inputs.iloc[idx, :])
+#             client_fig_html = f"<head>{shap.getjs()}</head><body>{client_fig.html()}</body>"
+#             components.html(client_fig_html, height=150)
 
-            feat_fig = shap.force_plot(
-                shap_explainer.expected_value,
-                shap_values[:50, :],
-                inputs.iloc[:50, :])
-            feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
-            components.html(feat_fig_html, height=350)
+#             feat_fig = shap.force_plot(
+#                 shap_explainer.expected_value,
+#                 shap_values[:50, :],
+#                 inputs.iloc[:50, :])
+#             feat_fig_html = f"<head>{shap.getjs()}</head><body>{feat_fig.html()}</body>"
+#             components.html(feat_fig_html, height=350)
 
-shap_explaination(selected_sk_id)
+# shap_explaination(selected_sk_id)
 
-st.image(Image.open(SUMMARY_SHAP), caption='Shap summary plot')
+st.image(Image.open(SUMMARY_SHAP), caption='SHAP summary plot')
