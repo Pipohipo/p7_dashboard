@@ -93,9 +93,10 @@ st.sidebar.header('Client Selection')
 def select_client():
     sk_id_select = st.sidebar.selectbox('SK_ID_CURR', sk_id_list, 0) #117082 Class 1 client
     sk_row = final.loc[[sk_id_select]]
-    return sk_row, sk_id_select
+    sk_row_cats = final_cats.loc[[sk_id_select]]
+    return sk_row, sk_row_cats, sk_id_select
 
-selected_sk_row, selected_sk_id = select_client()
+selected_sk_row, selected_sk_row_cats, selected_sk_id = select_client()
 
 st.sidebar.markdown(h_line)
 
@@ -118,9 +119,33 @@ st.sidebar.text(txt_feat_desc)
 ###############################################################
 # MAIN PAGE
 ###############################################################
-st.write('Default risk probability:', selected_sk_row['RISK_PROBA'].values[0])
-st.write('Category:', selected_sk_row['TARGET'].values[0])
-st.write('Client info:', selected_sk_row.drop(columns=['RISK_PROBA', 'TARGET']))
+
+# Show client info
+col1, col2 = st.beta_columns(2)
+with col1:
+    st.write('__Loan info__')
+    st.write('Default risk:', selected_sk_row['RISK_PROBA'].values[0])
+    st.write('Category (0/1):', selected_sk_row['TARGET'].values[0])
+    st.write('Contract:', selected_sk_row_cats['NAME_CONTRACT_TYPE'].values[0])
+    st.write('Amount:', selected_sk_row['AMT_CREDIT'].values[0])
+    st.write('Annuity:', selected_sk_row['AMT_ANNUITY'].values[0])
+    st.write('Credit over income:', selected_sk_row['CREDIT_INCOME_RATIO'].values[0])
+    st.write('Previous known loans:', selected_sk_row['N_TOTAL_LOANS'].values[0])
+    st.write('Rejected loans ratio:', selected_sk_row['N_REJECT_RATIO'].values[0])
+with col2:
+    st.write('__Client info__')
+    st.write('Gender:', selected_sk_row_cats['CODE_GENDER'].values[0])
+    st.write('Age:', round(selected_sk_row['YEARS_BIRTH'].values[0]))
+    st.write('Status:', selected_sk_row_cats['NAME_FAMILY_STATUS'].values[0])
+    st.write('Education:', selected_sk_row_cats['NAME_EDUCATION_TYPE'].values[0])
+    st.write('Occupation:', selected_sk_row_cats['OCCUPATION_TYPE'].values[0])
+    st.write(
+        'Employer:', selected_sk_row_cats['ORGANIZATION_TYPE'].values[0],
+        ', for', round(selected_sk_row['YEARS_EMPLOYED'].values[0]),
+        'years')
+    st.write('Housing:', selected_sk_row_cats['NAME_HOUSING_TYPE'].values[0])
+    st.write('Car:', selected_sk_row_cats['FLAG_OWN_CAR'].values[0])
+st.write('__Application data:__', selected_sk_row.drop(columns=['RISK_PROBA', 'TARGET']))
 
 st.markdown(h_line)
 
