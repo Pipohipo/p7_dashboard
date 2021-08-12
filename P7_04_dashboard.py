@@ -218,6 +218,11 @@ def lime_explaination(inputs, final, selected_sk_id):
             names.reverse()
             
             colors = ['red' if x > 0 else 'green' for x in vals]
+            # Green features support the prediction but we're looking for Class 1, 
+            # therefore we need to revert the green and red features since we're 
+            # looking for "failure to repay the loan". By doing this, we're inversing 
+            # the correlation colors: red means positively correlated and green means 
+            # negatively correlate with Class 1.
             
             pos = np.arange(len(exp_list))
             
@@ -234,8 +239,8 @@ def lime_explaination(inputs, final, selected_sk_id):
                 nearest_neighbors.fit(df_lime)
             
                 neighbors = nearest_neighbors.kneighbors(
-                    X=df_lime.loc[[selected_sk_id]], #current observation
-                    n_neighbors=nb_neighbors+1, #it gives the X value in the 0 position so we need one more
+                    X=df_lime.loc[[selected_sk_id]], # current observation
+                    n_neighbors=nb_neighbors+1, # it gives the X value in the 0 position so we need one more
                     return_distance=False)[0]
                 neighbors = np.delete(neighbors, 0)
             
@@ -297,6 +302,8 @@ def lime_explaination(inputs, final, selected_sk_id):
             st.pyplot(fig)
 
 lime_explaination(inputs, final, selected_sk_id)
+
+st.markdown(h_line)
 
 # SHAP
 st.subheader('SHAP Summary plot')
