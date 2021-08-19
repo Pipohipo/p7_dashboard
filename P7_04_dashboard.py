@@ -15,13 +15,13 @@ from PIL import Image
 st.set_option('deprecation.showPyplotGlobalUse', False)
 
 # paths and such
-MODEL_FILE = 'model_file.sav'
-FINAL_FILE = 'complete.pkl'
-FINAL_CATS_FILE = 'complete_cats.pkl'
-DESC_FILE = 'descriptions.pkl'
-# SHAP_EXP = 'shap_exp.sav'
-# SHAP_VAL = 'shap_val.pkl'
-SUMMARY_SHAP = 'summary_shap.png'
+MODEL_FILE = './pickle/model_file.sav'
+FINAL_FILE = './pickle/complete.pkl'
+FINAL_CATS_FILE = './pickle/complete_cats.pkl'
+DESC_FILE = './pickle/descriptions.pkl'
+# SHAP_EXP = 'pickle/shap_exp.sav'
+# SHAP_VAL = 'pickle/shap_val.pkl'
+SUMMARY_SHAP = './images/summary_shap.png'
 GITHUB_ROOT = ('https://raw.githubusercontent.com/pipohipo/p7_dashboard/main/')
 
 h_line = '''
@@ -100,7 +100,7 @@ selected_sk_row, selected_sk_row_cats, selected_sk_id = select_client()
 
 st.sidebar.markdown(h_line)
 
-st.sidebar.image(Image.open('pred_distrib.png'), caption='Target distribution')
+st.sidebar.image(Image.open('./images/pred_distrib.png'), caption='Target distribution')
 
 st.sidebar.markdown(h_line)
 
